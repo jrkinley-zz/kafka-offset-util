@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.cloudera.fce</groupId>
+  <artifactId>kafka-offset-util</artifactId>
+  <version>1.0-SNAPSHOT</version>
+
+  <properties>
+    <cdk.version>0.10.0-kafka-2.1.1</cdk.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka-clients</artifactId>
+      <version>${cdk.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka-clients</artifactId>
+      <classifier>test</classifier>
+      <scope>test</scope>
+      <version>${cdk.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka_2.10</artifactId>
+      <version>${cdk.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka_2.10</artifactId>
+      <classifier>test</classifier>
+      <scope>test</scope>
+      <version>${cdk.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.scalatest</groupId>
+      <artifactId>scalatest_2.10</artifactId>
+      <scope>test</scope>
+      <version>3.0.3</version>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <scope>test</scope>
+      <version>4.11</version>
+    </dependency>
+  </dependencies>
+
+  <repositories>
+    <repository>
+      <id>central</id>
+      <name>Maven Central</name>
+      <url>http://repo1.maven.org/maven2/</url>
+    </repository>
+    <repository>
+      <id>cloudera-repo</id>
+      <name>Cloudera CDH</name>
+      <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
+    </repository>
+  </repositories>
+</project>
