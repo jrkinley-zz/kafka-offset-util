@@ -2,8 +2,9 @@ package com.cloudera.fce.kafka.admin
 
 import java.util.Properties
 
+import joptsimple.OptionParser
 import kafka.admin.AdminClient
-import kafka.utils.Logging
+import kafka.utils.{CommandLineUtils, Logging}
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
 import org.apache.kafka.common.TopicPartition
 
@@ -11,14 +12,12 @@ import scala.collection.mutable.ListBuffer
 
 object ConsumerOffsetCommand extends Logging {
   def main(args: Array[String]) {
-    val bootstrap = args(0)
-    val group = args(1)
-    val cmd = args(2)
-    val rewind = args(3).toLong
+    val opts = new ConsumerOffsetCommandOptions(args)
+    opts.checkArgs()
 
     val properties = new Properties()
-    properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap)
-    properties.put(ConsumerConfig.GROUP_ID_CONFIG, group)
+    properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, opts.bootstrapOpt)
+    properties.put(ConsumerConfig.GROUP_ID_CONFIG, opts.groupOpt)
     properties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true")
     properties.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "30000")
     properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer")
@@ -27,10 +26,10 @@ object ConsumerOffsetCommand extends Logging {
     val client = createAdminClient(properties)
     val consumer: KafkaConsumer[String, String] = new KafkaConsumer(properties)
 
-    cmd match {
-      case "describe" => printOffsetsForGroup(getOffsetsForGroup(client, consumer, group))
-      case "update" => setOffsetsForGroup(client, consumer, group, rewind)
-      case _ => throw new Exception()
+    if (opts.options.has(opts.listOpt)) {
+      printOffsetsForGroup(getOffsetsForGroup(client, consumer, opts.options.valueOf(opts.groupOpt)))
+    } else if (opts.options.has(opts.setOpt)) {
+      setOffsetsForGroup(client, consumer, opts.options.valueOf(opts.groupOpt), opts.options.valueOf(opts.rewindOpt))
     }
   }
 
@@ -94,5 +93,47 @@ object ConsumerOffsetCommand extends Logging {
   }
 
   case class PartitionOffsets(group: String, topicPartition: TopicPartition, offset: Long)
+
+  class ConsumerOffsetCommandOptions(args: Array[String]) {
+    val parser = new OptionParser
+
+    val bootstrapOpt = parser.accepts("bootstrap-server")
+      .withRequiredArg
+      .describedAs("A list of host/port pairs to use for establishing the initial connection to the Kafka cluster")
+      .ofType(classOf[String])
+
+    val groupOpt = parser.accepts("group")
+      .withRequiredArg
+      .describedAs("The name of the consumer group")
+      .ofType(classOf[String])
+
+    val listOpt = parser.accepts("list")
+      .withOptionalArg
+      .describedAs("List the current offset for each partition / consumer in the group")
+      .ofType(classOf[String])
+
+    val setOpt = parser.accepts("set")
+      .withOptionalArg
+      .describedAs("Set the current offset for each partition / consumer in the group")
+      .ofType(classOf[String])
+
+    val rewindOpt = parser.accepts("rewind")
+      .withOptionalArg
+      .describedAs("The number to subtract from each partition / consumer in the group")
+      .ofType(classOf[Long])
+
+    val options = parser.parse(args: _*)
+
+    def checkArgs() {
+      CommandLineUtils.checkRequiredArgs(parser, options, bootstrapOpt)
+      CommandLineUtils.checkRequiredArgs(parser, options, groupOpt)
+      if (!options.has(listOpt) && !options.has(setOpt)) {
+        CommandLineUtils.printUsageAndDie(parser, s"Need to specify $listOpt or $setOpt")
+      }
+      if (options.has(setOpt) && !options.has(rewindOpt)) {
+        CommandLineUtils.printUsageAndDie(parser, s"Option $setOpt is not valid without $rewindOpt")
+      }
+    }
+  }
 
 }
