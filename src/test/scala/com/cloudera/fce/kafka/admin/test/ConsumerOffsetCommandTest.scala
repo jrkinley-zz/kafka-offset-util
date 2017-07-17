@@ -25,15 +25,16 @@ class ConsumerOffsetCommandTest extends KafkaServerTestHarness {
   properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer")
   properties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer")
 
-  var admin: AdminClient = null
-  var consumer: KafkaConsumer[String, String] = null
-  var producer: KafkaProducer[Array[Byte], Array[Byte]] = null
+  var admin: AdminClient = _
+  var consumer: KafkaConsumer[String, String] = _
+  var producer: KafkaProducer[Array[Byte], Array[Byte]] = _
 
   override def generateConfigs(): Seq[KafkaConfig] = {
     val numServers = 1
     val overridingProps = new Properties()
     overridingProps.put("listeners", "PLAINTEXT://localhost:9092")
-    TestUtils.createBrokerConfigs(numServers, zkConnect, false).map(KafkaConfig.fromProps(_, overridingProps))
+    TestUtils.createBrokerConfigs(numServers, zkConnect, enableControlledShutdown = false)
+      .map(KafkaConfig.fromProps(_, overridingProps))
   }
 
   @Before
@@ -86,7 +87,7 @@ class ConsumerOffsetCommandTest extends KafkaServerTestHarness {
     consumer.commitSync()
 
     // Rewind offsets by 10
-    setOffsetsForGroup(admin, consumer, group, 10L)
+    rewindOffsetsForGroup(admin, consumer, group, 10L)
 
     val offsets: List[PartitionOffsets] = getOffsetsForGroup(admin, consumer, group)
     assertEquals(2, offsets.length) // Expect one item per topic partition
@@ -95,7 +96,25 @@ class ConsumerOffsetCommandTest extends KafkaServerTestHarness {
       assertEquals(topic, partitionOffset.topicPartition.topic)
       assertEquals(15, partitionOffset.offset) // Expect both partitions to have been reset to 15
     })
+    printOffsetsForGroup(offsets)
+  }
 
+  @Test
+  def testSetTimestamp() {
+    createTestTopic()
+
+    // Consume messages and set offsets
+    consumer.subscribe(util.Arrays.asList(topic))
+    consumer.poll(0)
+    consumer.commitSync()
+
+    // Rewind offsets to timestamp
+    setTimestampForGroup(admin, consumer, group, 10L)
+
+    val offsets: List[PartitionOffsets] = getOffsetsForGroup(admin, consumer, group)
+    assertEquals(2, offsets.length) // Expect one item per topic partition
+    assertEquals(4, offsets(0).offset)
+    assertEquals(5, offsets(1).offset)
     printOffsetsForGroup(offsets)
   }
 
@@ -111,9 +130,9 @@ class ConsumerOffsetCommandTest extends KafkaServerTestHarness {
       logger.debug(s"Creating topic:$topic")
       TestUtils.createTopic(zkUtils, topic, 2, 1, servers)
       for (x <- 1 to 50) {
-        val msg = new ProducerRecord(topic, x % 2, s"key$x".getBytes, s"value$x".getBytes)
+        val msg = new ProducerRecord(topic, x % 2, x.toLong, s"key$x".getBytes, s"value$x".getBytes)
         producer.send(msg, callback)
-        logger.debug(s"Sending message: key:key$x, value:value$x, partition:${x % 2}")
+        logger.debug(s"Sending message: key:key$x, value:value$x, partition:${x % 2}, timestamp:${x.toLong}")
       }
     } finally {
       producer.close()

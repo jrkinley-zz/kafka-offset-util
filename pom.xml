@@ -9,7 +9,7 @@
   <version>1.0-SNAPSHOT</version>
 
   <properties>
-    <cdk.version>0.10.0-kafka-2.1.1</cdk.version>
+    <cdk.version>0.10.2-kafka-2.2.0</cdk.version>
   </properties>
 
   <dependencies>

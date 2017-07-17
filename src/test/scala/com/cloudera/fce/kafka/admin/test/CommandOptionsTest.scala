@@ -10,7 +10,8 @@ import org.junit.{After, Before, Test}
 class CommandOptionsTest extends TestCase {
   val bootstrapServer = "--bootstrap-server=localhost:9092"
   val group = "--group=test"
-  val rewind = "--rewind=1000"
+  val rewindOffset = "--rewind_offset=1000"
+  val rewindTimestamp = "--rewind_timestamp=3600"
   val list = "--list"
   val set = "--set"
 
@@ -18,8 +19,9 @@ class CommandOptionsTest extends TestCase {
   val listArgs = Array(bootstrapServer, group, list)
   val listArgsBad1 = Array(group, list)
   val listArgsBad2 = Array(bootstrapServer, list)
-  val setArgs = Array(bootstrapServer, group, set, rewind)
-  val setArgsBad = Array(bootstrapServer, group, set)
+  val setArgs = Array(bootstrapServer, group, set, rewindOffset)
+  val setArgsBad1 = Array(bootstrapServer, group, set)
+  val setArgsBad2 = Array(bootstrapServer, group, set, rewindOffset, rewindTimestamp)
 
   @Before
   override def setUp() {
@@ -75,10 +77,18 @@ class CommandOptionsTest extends TestCase {
         fail(s"args: '$setArgs' are valid.")
     }
 
-    val opts6 = new ConsumerOffsetCommandOptions(setArgsBad)
+    val opts6 = new ConsumerOffsetCommandOptions(setArgsBad1)
     try {
       opts6.checkArgs()
-      fail("'rewind' arg is mandatory with set")
+      fail("Must specify 'rewind_offset', 'rewind_timestamp', or 'set_timestamp' with set")
+    } catch {
+      case _: ExitException =>
+    }
+
+    val opts7 = new ConsumerOffsetCommandOptions(setArgsBad2)
+    try {
+      opts7.checkArgs()
+      fail("Specifying both 'rewind_offset' and 'rewind_timestamp' is invalid with set")
     } catch {
       case _: ExitException =>
     }

@@ -1,8 +1,9 @@
 package com.cloudera.fce.kafka.admin
 
+import java.time.{LocalDateTime, ZoneId}
 import java.util.Properties
 
-import joptsimple.OptionParser
+import joptsimple.{ArgumentAcceptingOptionSpec, OptionParser, OptionSet}
 import kafka.admin.AdminClient
 import kafka.utils.{CommandLineUtils, Logging}
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
@@ -23,27 +24,40 @@ object ConsumerOffsetCommand extends Logging {
     properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer")
     properties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer")
 
-    val client = createAdminClient(properties)
+    val client: AdminClient = createAdminClient(properties)
     val consumer: KafkaConsumer[String, String] = new KafkaConsumer(properties)
 
     if (opts.options.has(opts.listOpt)) {
       printOffsetsForGroup(getOffsetsForGroup(client, consumer, opts.options.valueOf(opts.groupOpt)))
     } else if (opts.options.has(opts.setOpt)) {
-      setOffsetsForGroup(client, consumer, opts.options.valueOf(opts.groupOpt), opts.options.valueOf(opts.rewindOpt))
+      if (opts.options.has(opts.rewindOffsetOpt))
+        rewindOffsetsForGroup(client, consumer, opts.options.valueOf(opts.groupOpt),
+          opts.options.valueOf(opts.rewindOffsetOpt))
+      else {
+        var timestamp: LocalDateTime = _
+        if (opts.options.has(opts.rewindTimestampOpt))
+          timestamp = LocalDateTime.now().minusMinutes(opts.options.valueOf(opts.rewindTimestampOpt))
+        else if (opts.options.has(opts.setTimestampOpt))
+          timestamp = LocalDateTime.parse(opts.options.valueOf(opts.setTimestampOpt))
+
+        setTimestampForGroup(client, consumer, opts.options.valueOf(opts.groupOpt),
+          timestamp.atZone(ZoneId.systemDefault).toEpochSecond)
+      }
     }
   }
 
   /**
-    * Rewind partition offsets for a consumer group
+    * Rewind consumer group partition offsets
     *
     * @param client   Kafka admin client
     * @param consumer Kafka consumer
     * @param group    Name of the consumer group
     * @param rewind   Number to subtract from the current offset of each partition for the consumer group
     */
-  def setOffsetsForGroup(client: AdminClient, consumer: KafkaConsumer[String, String], group: String, rewind: Long) {
+  def rewindOffsetsForGroup(client: AdminClient, consumer: KafkaConsumer[String, String], group: String, rewind: Long) {
     for (partitionOffset <- getOffsetsForGroup(client, consumer, group)) {
-      logger.info(s"setting offset: group:${partitionOffset.group}, " +
+      logger.info(s"Rewinding offset by $rewind: " +
+        s"group:${partitionOffset.group}, " +
         s"topic:${partitionOffset.topicPartition.topic}, " +
         s"partition:${partitionOffset.topicPartition.partition}, " +
         s"current offset:${partitionOffset.offset}, " +
@@ -53,11 +67,43 @@ object ConsumerOffsetCommand extends Logging {
     }
   }
 
+  /**
+    * Set consumer group partition offsets based on timestamp
+    *
+    * @param client    Kafka admin client
+    * @param consumer  Kafka consumer
+    * @param group     Name of the consumer group
+    * @param timestamp Timestamp to use to set the consumer group partition offsets
+    */
+  def setTimestampForGroup(client: AdminClient, consumer: KafkaConsumer[String, String], group: String, timestamp: Long) {
+    val cgs = client.describeConsumerGroup(group)
+    cgs.consumers match {
+      case Some(summaries) =>
+        for (summary <- summaries) {
+          summary.assignment.foreach(tp => {
+            val timestampOffset = consumer.offsetsForTimes(java.util.Collections.singletonMap(tp, timestamp)).get(tp).offset
+            logger.info(s"Setting offset from timestamp $timestamp: " +
+              s"group:$group, " +
+              s"topic:${tp.topic}, " +
+              s"partition:${tp.partition}, " +
+              s"current offset:${consumer.committed(tp).offset}, " +
+              s"new offset:$timestampOffset")
+            consumer.seek(tp, timestampOffset)
+            consumer.commitSync()
+          })
+        }
+      case _ =>
+    }
+  }
+
   def printOffsetsForGroup(offsets: List[PartitionOffsets]) {
     println("%-20s %-20s %-10s %-15s".format("GROUP", "TOPIC", "PARTITION", "CURRENT-OFFSET"))
     for (offset <- offsets) {
-      println("%-20s %-20s %-10s %-15s".format(offset.group,
-        offset.topicPartition.topic, offset.topicPartition.partition, offset.offset))
+      println("%-20s %-20s %-10s %-15s".format(
+        offset.group,
+        offset.topicPartition.topic,
+        offset.topicPartition.partition,
+        offset.offset))
     }
   }
 
@@ -70,22 +116,16 @@ object ConsumerOffsetCommand extends Logging {
     * @return List of topic partitions and their current offsets for the consumer group
     */
   def getOffsetsForGroup(client: AdminClient, consumer: KafkaConsumer[String, String], group: String): List[PartitionOffsets] = {
-    client.describeConsumerGroup(group) match {
-      case None => throw new Exception(s"consumer group:$group does not exist.")
-      case Some(consumerSummaries) =>
-        if (consumerSummaries.isEmpty)
-          throw new Exception(s"consumer group:$group is rebalancing.")
-        else {
-          var offsets = new ListBuffer[PartitionOffsets]()
-          for (summary <- consumerSummaries)
-            for (tp <- summary.assignment) {
-              val offset = consumer.committed(tp).offset
-              logger.debug(s"group:$group, topic:${tp.topic}, partition:${tp.partition}, offset:$offset")
-              offsets += PartitionOffsets(group, tp, offset)
-            }
-          offsets.toList
+    val cgs = client.describeConsumerGroup(group)
+    var offsets = new ListBuffer[PartitionOffsets]()
+    cgs.consumers match {
+      case Some(summaries) =>
+        for (summary <- summaries) {
+          summary.assignment.foreach(tp => offsets += PartitionOffsets(group, tp, consumer.committed(tp).offset))
         }
+      case _ =>
     }
+    offsets.toList
   }
 
   def createAdminClient(props: Properties): AdminClient = {
@@ -97,41 +137,64 @@ object ConsumerOffsetCommand extends Logging {
   class ConsumerOffsetCommandOptions(args: Array[String]) {
     val parser = new OptionParser
 
-    val bootstrapOpt = parser.accepts("bootstrap-server")
+    val bootstrapOpt: ArgumentAcceptingOptionSpec[String] = parser.accepts("bootstrap-server")
       .withRequiredArg
       .describedAs("A list of host/port pairs to use for establishing the initial connection to the Kafka cluster")
       .ofType(classOf[String])
 
-    val groupOpt = parser.accepts("group")
+    val groupOpt: ArgumentAcceptingOptionSpec[String] = parser.accepts("group")
       .withRequiredArg
       .describedAs("The name of the consumer group")
       .ofType(classOf[String])
 
-    val listOpt = parser.accepts("list")
+    val listOpt: ArgumentAcceptingOptionSpec[String] = parser.accepts("list")
       .withOptionalArg
       .describedAs("List the current offset for each partition / consumer in the group")
       .ofType(classOf[String])
 
-    val setOpt = parser.accepts("set")
+    val setOpt: ArgumentAcceptingOptionSpec[String] = parser.accepts("set")
       .withOptionalArg
       .describedAs("Set the current offset for each partition / consumer in the group")
       .ofType(classOf[String])
 
-    val rewindOpt = parser.accepts("rewind")
+    val rewindOffsetOpt: ArgumentAcceptingOptionSpec[Long] = parser.accepts("rewind_offset")
       .withOptionalArg
       .describedAs("The number to subtract from each partition / consumer in the group")
       .ofType(classOf[Long])
 
-    val options = parser.parse(args: _*)
+    val rewindTimestampOpt: ArgumentAcceptingOptionSpec[Long] = parser.accepts("rewind_timestamp")
+      .withOptionalArg
+      .describedAs("The number of seconds to subtract from each partition / consumer in the group")
+      .ofType(classOf[Long])
+
+    val setTimestampOpt: ArgumentAcceptingOptionSpec[String] = parser.accepts("set_timestamp")
+      .withOptionalArg
+      .describedAs("An ISO-8601 formatted timestamp to use to set the offset for each partition / consumer in the group")
+      .ofType(classOf[String])
+
+    val options: OptionSet = parser.parse(args: _*)
 
     def checkArgs() {
       CommandLineUtils.checkRequiredArgs(parser, options, bootstrapOpt)
       CommandLineUtils.checkRequiredArgs(parser, options, groupOpt)
-      if (!options.has(listOpt) && !options.has(setOpt)) {
+
+      if (!options.has(listOpt) && !options.has(setOpt))
         CommandLineUtils.printUsageAndDie(parser, s"Need to specify $listOpt or $setOpt")
-      }
-      if (options.has(setOpt) && !options.has(rewindOpt)) {
-        CommandLineUtils.printUsageAndDie(parser, s"Option $setOpt is not valid without $rewindOpt")
+
+      if (options.has(listOpt))
+        CommandLineUtils.checkInvalidArgs(parser, options, listOpt,
+          Set(setOpt, rewindOffsetOpt, rewindTimestampOpt, setTimestampOpt))
+
+      if (options.has(setOpt)) {
+        if (!options.has(rewindOffsetOpt) && !options.has(rewindTimestampOpt) && !options.has(setTimestampOpt))
+          CommandLineUtils.printUsageAndDie(parser,
+            s"Need to specify $rewindOffsetOpt, $rewindTimestampOpt, or $setTimestampOpt")
+        if (options.has(rewindOffsetOpt))
+          CommandLineUtils.checkInvalidArgs(parser, options, rewindOffsetOpt, Set(rewindTimestampOpt, setTimestampOpt))
+        if (options.has(rewindTimestampOpt))
+          CommandLineUtils.checkInvalidArgs(parser, options, rewindTimestampOpt, Set(rewindOffsetOpt, setTimestampOpt))
+        if (options.has(setTimestampOpt))
+          CommandLineUtils.checkInvalidArgs(parser, options, setTimestampOpt, Set(rewindOffsetOpt, rewindTimestampOpt))
       }
     }
   }
