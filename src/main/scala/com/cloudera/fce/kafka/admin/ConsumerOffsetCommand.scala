@@ -164,22 +164,22 @@ object ConsumerOffsetCommand extends Logging {
 
     val listOpt: ArgumentAcceptingOptionSpec[String] = parser.accepts("list")
       .withOptionalArg
-      .describedAs("List the current offset for each partition / consumer in the group")
+      .describedAs("List the current offset for each consumer / partition in the group")
       .ofType(classOf[String])
 
     val rewindOffsetOpt: ArgumentAcceptingOptionSpec[Long] = parser.accepts("rewind_offset")
       .withOptionalArg
-      .describedAs("The number to subtract from each partition / consumer in the group")
+      .describedAs("The number to subtract from each consumer / partition in the group")
       .ofType(classOf[Long])
 
     val rewindTimestampOpt: ArgumentAcceptingOptionSpec[Long] = parser.accepts("rewind_timestamp")
       .withOptionalArg
-      .describedAs("The number of seconds to subtract from each partition / consumer in the group")
+      .describedAs("The number of seconds to subtract from each consumer / partition in the group")
       .ofType(classOf[Long])
 
     val setTimestampOpt: ArgumentAcceptingOptionSpec[String] = parser.accepts("set_timestamp")
       .withOptionalArg
-      .describedAs("An ISO-8601 formatted timestamp to use to set the offset for each partition / consumer in the group")
+      .describedAs("An ISO-8601 formatted timestamp to use to set the offset for each consumer / partition in the group")
       .ofType(classOf[String])
 
     val options: OptionSet = parser.parse(args: _*)
