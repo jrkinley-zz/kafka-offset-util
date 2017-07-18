@@ -1,8 +1,8 @@
 # kafka-offset-util
 Utility for managing consumer offsets in Kafka
 
-**Deprecated**
-The features provided by this tool have been added to Apache Kafka 0.11.0.0 by [KAFKA-4743](https://issues.apache.org/jira/browse/KAFKA-4743)
+> **Deprecated:**
+> The features provided by this tool have been added to Apache Kafka 0.11.0.0 by [KAFKA-4743](https://issues.apache.org/jira/browse/KAFKA-4743)
 
 ```
 Usage: com.cloudera.fce.kafka.admin.ConsumerOffsetCommand
